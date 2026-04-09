@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ThreatClassify-LLM — Agentic Email Threat Classification | Hornetsecurity</title>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #06b6d4;
+            --primary-glow: rgba(6, 182, 212, 0.35);
+            --secondary: #f97316;
+            --accent: #a855f7;
+            --success: #22c55e;
+            --warning: #eab308;
+            --danger: #ef4444;
+            --bg-dark: #030712;
+            --bg-card: #0c1222;
+            --bg-elevated: #151d2e;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #1e293b;
+            --gradient: linear-gradient(135deg, #06b6d4 0%, #a855f7 50%, #f97316 100%);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Sora',sans-serif; background:var(--bg-dark); color:var(--text-primary); min-height:100vh;
+            background-image: radial-gradient(ellipse at 20% 80%, rgba(6,182,212,0.07) 0%, transparent 50%),
+                              radial-gradient(ellipse at 80% 20%, rgba(168,85,247,0.06) 0%, transparent 50%);
+        }
+        .header { background:linear-gradient(180deg,rgba(6,182,212,0.05) 0%,transparent 100%); border-bottom:1px solid var(--border); padding:0.7rem 2rem; position:sticky; top:0; z-index:100; backdrop-filter:blur(20px); }
+        .header-content { max-width:1800px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; }
+        .logo { display:flex; align-items:center; gap:0.75rem; }
+        .logo-icon { width:44px; height:44px; background:var(--gradient); border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; position:relative; }
+        .logo-icon::after { content:''; position:absolute; inset:-2px; background:var(--gradient); border-radius:13px; z-index:-1; opacity:0.4; filter:blur(8px); }
+        .logo-text { font-size:1.4rem; font-weight:800; background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+        .logo-sub { font-size:0.58rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:3px; font-weight:500; }
+        .badges { display:flex; gap:0.4rem; flex-wrap:wrap; }
+        .badge { background:var(--bg-card); border:1px solid var(--border); padding:0.3rem 0.65rem; border-radius:6px; font-size:0.62rem; color:var(--text-secondary); font-family:'Fira Code',monospace; }
+        .badge.live { background:rgba(34,197,94,0.12); border-color:var(--success); color:var(--success); }
+        .badge.live::before { content:''; display:inline-block; width:6px; height:6px; background:var(--success); border-radius:50%; margin-right:5px; animation:pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        .main { max-width:1800px; margin:0 auto; padding:1.25rem 2rem; }
+        .hero { text-align:center; margin-bottom:1.25rem; }
+        .hero h1 { font-size:2.2rem; font-weight:800; background:var(--gradient); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:0.3rem; }
+        .hero p { color:var(--text-secondary); font-size:0.95rem; }
+
+        .workspace { display:grid; grid-template-columns:1fr 400px; gap:1.25rem; }
+        @media(max-width:1300px){ .workspace{grid-template-columns:1fr} }
+
+        .card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; overflow:hidden; }
+        .card-header { padding:0.9rem 1.2rem; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:linear-gradient(180deg,rgba(21,29,46,0.6) 0%,transparent 100%); }
+        .card-title { font-size:0.85rem; font-weight:700; display:flex; align-items:center; gap:0.5rem; }
+        .card-body { padding:1.2rem; }
+
+        /* Email Queue */
+        .email-queue { display:flex; flex-direction:column; gap:0.6rem; margin-bottom:1rem; }
+        .email-item { background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; padding:0.9rem 1rem; cursor:pointer; transition:all .3s; position:relative; overflow:hidden; }
+        .email-item:hover { border-color:var(--primary); transform:translateY(-1px); }
+        .email-item.selected { border-color:var(--primary); background:rgba(6,182,212,0.08); }
+        .email-item.processing { border-color:var(--accent); }
+        .email-item.processing::after { content:''; position:absolute; top:0; left:0; height:2px; background:var(--gradient); animation:scanLine 1.5s linear infinite; }
+        @keyframes scanLine { 0%{width:0;left:0} 50%{width:100%;left:0} 100%{width:0;left:100%} }
+        .email-item.classified .threat-indicator { display:flex; }
+        .email-from { font-size:0.82rem; font-weight:600; margin-bottom:0.15rem; }
+        .email-subject { font-size:0.75rem; color:var(--text-secondary); margin-bottom:0.35rem; }
+        .email-meta { display:flex; gap:0.75rem; font-size:0.62rem; color:var(--text-muted); font-family:'Fira Code',monospace; }
+        .threat-indicator { display:none; position:absolute; top:0.7rem; right:0.8rem; align-items:center; gap:0.4rem; padding:0.25rem 0.6rem; border-radius:6px; font-size:0.65rem; font-weight:700; font-family:'Fira Code',monospace; animation:fadeIn .4s; }
+        @keyframes fadeIn { from{opacity:0;transform:scale(0.8)} to{opacity:1;transform:scale(1)} }
+        .threat-indicator.phishing { background:rgba(239,68,68,0.2); color:var(--danger); border:1px solid rgba(239,68,68,0.4); }
+        .threat-indicator.bec { background:rgba(249,115,22,0.2); color:var(--secondary); border:1px solid rgba(249,115,22,0.4); }
+        .threat-indicator.spam { background:rgba(234,179,8,0.2); color:var(--warning); border:1px solid rgba(234,179,8,0.4); }
+        .threat-indicator.clean { background:rgba(34,197,94,0.15); color:var(--success); border:1px solid rgba(34,197,94,0.4); }
+
+        .controls { display:flex; gap:0.5rem; margin-bottom:1rem; }
+        .btn { flex:1; padding:0.7rem; background:var(--bg-elevated); border:1px solid var(--border); border-radius:9px; color:var(--text-primary); font-family:'Sora',sans-serif; font-size:0.78rem; font-weight:600; cursor:pointer; transition:all .3s; display:flex; align-items:center; justify-content:center; gap:0.45rem; }
+        .btn:hover { border-color:var(--primary); background:rgba(6,182,212,0.1); }
+        .btn.active { border-color:var(--primary); background:rgba(6,182,212,0.18); color:var(--primary); }
+
+        /* Analysis Panel */
+        .analysis-panel { background:var(--bg-elevated); border-radius:12px; padding:1rem; }
+        .analysis-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem; }
+        .analysis-title { font-size:0.8rem; font-weight:700; }
+        .analysis-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0.5rem; margin-bottom:1rem; }
+        .analysis-stat { background:var(--bg-dark); border-radius:8px; padding:0.7rem; text-align:center; }
+        .analysis-stat-val { font-size:1.1rem; font-weight:700; font-family:'Fira Code',monospace; }
+        .analysis-stat-label { font-size:0.58rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; }
+
+        /* LLM Reasoning */
+        .reasoning-box { background:var(--bg-dark); border-radius:10px; padding:1rem; border-left:3px solid var(--accent); margin-bottom:0.8rem; max-height:180px; overflow-y:auto; }
+        .reasoning-title { font-size:0.72rem; font-weight:600; color:var(--accent); margin-bottom:0.4rem; display:flex; align-items:center; gap:0.4rem; }
+        .reasoning-text { font-size:0.72rem; color:var(--text-secondary); line-height:1.5; font-family:'Fira Code',monospace; }
+        .reasoning-text .highlight { color:var(--danger); font-weight:600; }
+        .reasoning-text .safe-highlight { color:var(--success); font-weight:600; }
+
+        /* Feature Extraction */
+        .features-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:0.4rem; }
+        .feature-item { background:var(--bg-dark); border-radius:8px; padding:0.6rem 0.8rem; display:flex; justify-content:space-between; align-items:center; }
+        .feature-name { font-size:0.68rem; color:var(--text-secondary); }
+        .feature-value { font-size:0.7rem; font-weight:600; font-family:'Fira Code',monospace; }
+        .feature-value.danger { color:var(--danger); }
+        .feature-value.warn { color:var(--warning); }
+        .feature-value.ok { color:var(--success); }
+
+        /* Sidebar */
+        .sidebar { display:flex; flex-direction:column; gap:1rem; }
+
+        /* Pipeline Viz */
+        .pipeline { display:flex; flex-direction:column; gap:0.4rem; }
+        .pipeline-step { background:var(--bg-elevated); border-radius:10px; padding:0.75rem 1rem; display:flex; align-items:center; gap:0.7rem; border-left:3px solid var(--border); transition:all .4s; }
+        .pipeline-step.active { border-left-color:var(--primary); background:rgba(6,182,212,0.08); }
+        .pipeline-step.done { border-left-color:var(--success); }
+        .pipeline-step.error { border-left-color:var(--danger); }
+        .step-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:0.9rem; background:var(--bg-dark); }
+        .step-name { font-size:0.75rem; font-weight:600; }
+        .step-status { font-size:0.62rem; color:var(--text-muted); font-family:'Fira Code',monospace; }
+        .step-time { margin-left:auto; font-size:0.65rem; font-family:'Fira Code',monospace; color:var(--text-muted); }
+
+        /* Threat Breakdown */
+        .threat-bars { display:flex; flex-direction:column; gap:0.5rem; }
+        .threat-bar-item { }
+        .threat-bar-header { display:flex; justify-content:space-between; margin-bottom:0.25rem; }
+        .threat-bar-name { font-size:0.7rem; font-weight:600; }
+        .threat-bar-pct { font-size:0.7rem; font-family:'Fira Code',monospace; }
+        .threat-bar-track { height:8px; background:var(--bg-dark); border-radius:4px; overflow:hidden; }
+        .threat-bar-fill { height:100%; border-radius:4px; transition:width .8s cubic-bezier(.4,0,.2,1); }
+
+        /* Detection Log */
+        .det-log { max-height:260px; overflow-y:auto; }
+        .log-entry { display:flex; gap:0.6rem; padding:0.65rem 0.75rem; background:var(--bg-elevated); border-radius:8px; margin-bottom:0.4rem; animation:slideIn .3s; border-left:3px solid var(--border); }
+        .log-entry.phishing { border-left-color:var(--danger); }
+        .log-entry.bec { border-left-color:var(--secondary); }
+        .log-entry.spam { border-left-color:var(--warning); }
+        .log-entry.clean { border-left-color:var(--success); }
+        @keyframes slideIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+        .log-icon { font-size:1rem; }
+        .log-body { flex:1; }
+        .log-title { font-size:0.73rem; font-weight:600; }
+        .log-detail { font-size:0.62rem; color:var(--text-muted); font-family:'Fira Code',monospace; }
+        .log-conf { font-size:0.72rem; font-weight:700; font-family:'Fira Code',monospace; }
+
+        /* Processing overlay */
+        .overlay { position:fixed; inset:0; background:rgba(3,7,18,0.97); display:none; flex-direction:column; align-items:center; justify-content:center; z-index:1000; }
+        .overlay.active { display:flex; }
+        .spinner { width:80px; height:80px; border:4px solid var(--border); border-top-color:var(--primary); border-right-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:1.5rem; }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        .overlay-text { font-size:1rem; font-weight:700; margin-bottom:0.4rem; }
+        .overlay-sub { font-size:0.8rem; color:var(--text-muted); font-family:'Fira Code',monospace; margin-bottom:1.2rem; }
+        .progress-track { width:260px; height:4px; background:var(--bg-elevated); border-radius:2px; overflow:hidden; }
+        .progress-fill { height:100%; background:var(--gradient); width:0%; transition:width .3s; }
+
+        /* Toast */
+        .toast { position:fixed; bottom:1.5rem; right:1.5rem; background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:0.8rem 1.1rem; display:flex; align-items:center; gap:0.6rem; box-shadow:0 12px 40px rgba(0,0,0,.5); transform:translateY(100px); opacity:0; transition:all .4s cubic-bezier(.4,0,.2,1); z-index:1000; }
+        .toast.show { transform:translateY(0); opacity:1; }
+        .toast-icon { font-size:1.2rem; }
+        .toast-title { font-size:0.8rem; font-weight:600; }
+        .toast-msg { font-size:0.65rem; color:var(--text-muted); }
+
+        ::-webkit-scrollbar { width:5px; }
+        ::-webkit-scrollbar-track { background:var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">🛡️</div>
+                <div>
+                    <div class="logo-text">ThreatClassify-LLM</div>
+                    <div class="logo-sub">Hornetsecurity PAIR Team</div>
+                </div>
+            </div>
+            <div class="badges">
+                <span class="badge live">Pipeline Active</span>
+                <span class="badge">LLM + ML Hybrid</span>
+                <span class="badge">gRPC Microservice</span>
+                <span class="badge">&lt;200ms E2E</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="hero">
+            <h1>🛡️ Agentic Email Threat Classification</h1>
+            <p>LLM reasoning + ML feature extraction — explainable verdicts for SOC analysts in real time</p>
+        </div>
+
+        <div class="workspace">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">📨 Incoming Email Queue</h3>
+                    <span style="font-size:0.65rem;color:var(--text-muted);font-family:'Fira Code'"id="queueCount">6 pending</span>
+                </div>
+                <div class="card-body">
+                    <div class="email-queue" id="emailQueue"></div>
+
+                    <div class="controls">
+                        <button class="btn" id="classifyBtn" onclick="classifySelected()">🔍 Classify Selected</button>
+                        <button class="btn" onclick="classifyAll()">⚡ Classify All</button>
+                        <button class="btn" onclick="resetAll()">🔄 Reset</button>
+                    </div>
+
+                    <div class="analysis-panel" id="analysisPanel">
+                        <div class="analysis-header">
+                            <span class="analysis-title">📊 Session Statistics</span>
+                        </div>
+                        <div class="analysis-grid">
+                            <div class="analysis-stat">
+                                <div class="analysis-stat-val" id="totalProcessed" style="color:var(--primary)">0</div>
+                                <div class="analysis-stat-label">Processed</div>
+                            </div>
+                            <div class="analysis-stat">
+                                <div class="analysis-stat-val" id="totalThreats" style="color:var(--danger)">0</div>
+                                <div class="analysis-stat-label">Threats</div>
+                            </div>
+                            <div class="analysis-stat">
+                                <div class="analysis-stat-val" id="avgLatency" style="color:var(--accent)">—</div>
+                                <div class="analysis-stat-label">Avg Latency</div>
+                            </div>
+                            <div class="analysis-stat">
+                                <div class="analysis-stat-val" id="avgConf" style="color:var(--success)">—</div>
+                                <div class="analysis-stat-label">Avg Confidence</div>
+                            </div>
+                        </div>
+
+                        <div class="reasoning-box" id="reasoningBox">
+                            <div class="reasoning-title">🧠 LLM Reasoning Chain</div>
+                            <div class="reasoning-text" id="reasoningText">Select and classify an email to see the LLM's explainable reasoning chain.</div>
+                        </div>
+
+                        <div class="features-grid" id="featuresGrid">
+                            <div class="feature-item"><span class="feature-name">URL Analysis</span><span class="feature-value" style="color:var(--text-muted)">—</span></div>
+                            <div class="feature-item"><span class="feature-name">Header Auth</span><span class="feature-value" style="color:var(--text-muted)">—</span></div>
+                            <div class="feature-item"><span class="feature-name">Sender Rep.</span><span class="feature-value" style="color:var(--text-muted)">—</span></div>
+                            <div class="feature-item"><span class="feature-name">Urgency Score</span><span class="feature-value" style="color:var(--text-muted)">—</span></div>
+                            <div class="feature-item"><span class="feature-name">SPF/DKIM</span><span class="feature-value" style="color:var(--text-muted)">—</span></div>
+                            <div class="feature-item"><span class="feature-name">NLP Sentiment</span><span class="feature-value" style="color:var(--text-muted)">—</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">⚙️ Classification Pipeline</h3></div>
+                    <div class="card-body">
+                        <div class="pipeline" id="pipeline">
+                            <div class="pipeline-step" data-step="0"><div class="step-icon">📥</div><div><div class="step-name">Email Ingestion</div><div class="step-status">Waiting...</div></div><div class="step-time">—</div></div>
+                            <div class="pipeline-step" data-step="1"><div class="step-icon">🔗</div><div><div class="step-name">URL & Header Extraction</div><div class="step-status">Waiting...</div></div><div class="step-time">—</div></div>
+                            <div class="pipeline-step" data-step="2"><div class="step-icon">🤖</div><div><div class="step-name">ML Feature Scoring</div><div class="step-status">Waiting...</div></div><div class="step-time">—</div></div>
+                            <div class="pipeline-step" data-step="3"><div class="step-icon">🧠</div><div><div class="step-name">LLM Reasoning</div><div class="step-status">Waiting...</div></div><div class="step-time">—</div></div>
+                            <div class="pipeline-step" data-step="4"><div class="step-icon">⚖️</div><div><div class="step-name">Hybrid Verdict</div><div class="step-status">Waiting...</div></div><div class="step-time">—</div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">📊 Threat Breakdown</h3></div>
+                    <div class="card-body">
+                        <div class="threat-bars" id="threatBars">
+                            <div class="threat-bar-item">
+                                <div class="threat-bar-header"><span class="threat-bar-name" style="color:var(--danger)">Phishing</span><span class="threat-bar-pct" id="phishPct">0%</span></div>
+                                <div class="threat-bar-track"><div class="threat-bar-fill" id="phishBar" style="width:0%;background:var(--danger)"></div></div>
+                            </div>
+                            <div class="threat-bar-item">
+                                <div class="threat-bar-header"><span class="threat-bar-name" style="color:var(--secondary)">BEC</span><span class="threat-bar-pct" id="becPct">0%</span></div>
+                                <div class="threat-bar-track"><div class="threat-bar-fill" id="becBar" style="width:0%;background:var(--secondary)"></div></div>
+                            </div>
+                            <div class="threat-bar-item">
+                                <div class="threat-bar-header"><span class="threat-bar-name" style="color:var(--warning)">Spam</span><span class="threat-bar-pct" id="spamPct">0%</span></div>
+                                <div class="threat-bar-track"><div class="threat-bar-fill" id="spamBar" style="width:0%;background:var(--warning)"></div></div>
+                            </div>
+                            <div class="threat-bar-item">
+                                <div class="threat-bar-header"><span class="threat-bar-name" style="color:var(--success)">Clean</span><span class="threat-bar-pct" id="cleanPct">0%</span></div>
+                                <div class="threat-bar-track"><div class="threat-bar-fill" id="cleanBar" style="width:0%;background:var(--success)"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">📋 Classification Log</h3><span style="font-size:0.62rem;color:var(--text-muted)" id="logCount">0 events</span></div>
+                    <div class="card-body">
+                        <div class="det-log" id="detLog">
+                            <div style="color:var(--text-muted);font-size:0.78rem;text-align:center;padding:1.5rem;">Classify emails to see results</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="overlay" id="overlay">
+        <div class="spinner"></div>
+        <div class="overlay-text">Initializing Classification Engine...</div>
+        <div class="overlay-sub" id="overlaySub">Loading LLM weights...</div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+
+    <div class="toast" id="toast">
+        <span class="toast-icon" id="toastIcon">✅</span>
+        <div><div class="toast-title" id="toastTitle"></div><div class="toast-msg" id="toastMsg"></div></div>
+    </div>
+
+    <script>
+    const emails = [
+        { id:0, from:'security@paypa1-verify.com', subject:'⚠️ Your account has been limited — verify now', meta:{ domain:'paypa1-verify.com', ip:'185.234.72.11', country:'RU' }, threat:'phishing', conf:96.2,
+          reasoning:'<span class="highlight">Domain typosquat detected</span>: "paypa1" vs "paypal" (Levenshtein=1). Sender IP geolocated to Russia, inconsistent with PayPal infrastructure. <span class="highlight">Urgency language patterns</span> ("limited", "verify now") match phishing templates. DKIM signature absent. URL redirects through bit.ly to credential harvester at 185.234.72.11/login.',
+          features:{url:'Malicious',header:'FAIL',sender:'Unknown',urgency:'0.94',spf:'FAIL',nlp:'Fear/Urgency'}},
+        { id:1, from:'ceo@company-internal.com', subject:'Urgent wire transfer needed — confidential', meta:{ domain:'company-internal.com', ip:'104.18.22.5', country:'US' }, threat:'bec', conf:91.7,
+          reasoning:'<span class="highlight">Business Email Compromise indicators</span>: Display name spoofs CEO identity. Reply-to header differs from From header (routes to external Gmail). Request for wire transfer with <span class="highlight">urgency + secrecy markers</span> ("urgent", "confidential", "do not discuss"). No prior communication thread. Domain registered 48h ago.',
+          features:{url:'None',header:'PARTIAL',sender:'Spoofed',urgency:'0.97',spf:'PASS',nlp:'Authority/Pressure'}},
+        { id:2, from:'deals@mega-savings-newsletter.com', subject:'🔥 LIMITED TIME: 90% off designer brands!!!', meta:{ domain:'mega-savings-newsletter.com', ip:'45.33.18.44', country:'US' }, threat:'spam', conf:88.4,
+          reasoning:'Bulk sender patterns detected: high-volume originating IP, <span class="highlight">promotional language density 0.82</span> (threshold 0.6). Multiple exclamation marks and emoji in subject. Unsubscribe header present but links to tracking pixel. No personalization tokens. Sender reputation score: 12/100.',
+          features:{url:'Tracking',header:'PASS',sender:'Bulk',urgency:'0.31',spf:'PASS',nlp:'Promotional'}},
+        { id:3, from:'maria.chen@partnercorp.com', subject:'Q3 partnership review — meeting notes attached', meta:{ domain:'partnercorp.com', ip:'172.217.14.99', country:'US' }, threat:'clean', conf:94.1,
+          reasoning:'Sender domain <span class="safe-highlight">verified via DKIM + SPF + DMARC</span>. Existing communication history (14 prior exchanges). Attachment is .docx with valid Office XML signature. <span class="safe-highlight">No urgency markers</span>, standard business language. Sender IP consistent with Google Workspace infrastructure. All checks passed.',
+          features:{url:'None',header:'PASS',sender:'Verified',urgency:'0.08',spf:'PASS',nlp:'Neutral/Business'}},
+        { id:4, from:'it-helpdesk@m1crosoft-support.net', subject:'Password expiration notice — reset required immediately', meta:{ domain:'m1crosoft-support.net', ip:'91.215.85.33', country:'UA' }, threat:'phishing', conf:97.8,
+          reasoning:'<span class="highlight">Brand impersonation confirmed</span>: "m1crosoft" is a homoglyph attack on "microsoft". Domain registered 12h ago via anonymous registrar. <span class="highlight">Credential harvesting form</span> detected at target URL with Microsoft login page clone (visual similarity: 97.3%). SSL certificate is self-signed. Embedded tracking pixel with unique ID per recipient.',
+          features:{url:'Credential Harvest',header:'FAIL',sender:'Impersonation',urgency:'0.91',spf:'FAIL',nlp:'Fear/Authority'}},
+        { id:5, from:'newsletter@techcrunch.com', subject:'This week in AI: OpenAI launches new model', meta:{ domain:'techcrunch.com', ip:'104.18.8.68', country:'US' }, threat:'clean', conf:92.5,
+          reasoning:'<span class="safe-highlight">Legitimate newsletter from verified publisher</span>. Domain age: 19 years. DKIM, SPF, DMARC all pass. Sender IP matches Cloudflare CDN used by TechCrunch. List-Unsubscribe header present and functional. <span class="safe-highlight">No suspicious URLs</span>. Content matches known editorial style.',
+          features:{url:'Safe',header:'PASS',sender:'Verified',urgency:'0.05',spf:'PASS',nlp:'Informational'}}
+    ];
+
+    let selectedId = null;
+    let processed = 0, threats = 0, latencies = [], confidences = [];
+    let counts = { phishing:0, bec:0, spam:0, clean:0 };
+    let logEntries = [];
+
+    function init() {
+        const q = document.getElementById('emailQueue');
+        q.innerHTML = emails.map(e => `
+            <div class="email-item" id="email-${e.id}" onclick="selectEmail(${e.id})">
+                <div class="email-from">${e.from}</div>
+                <div class="email-subject">${e.subject}</div>
+                <div class="email-meta"><span>📍 ${e.meta.country}</span><span>🌐 ${e.meta.domain}</span><span>🖥️ ${e.meta.ip}</span></div>
+                <div class="threat-indicator" id="indicator-${e.id}"></div>
+            </div>
+        `).join('');
+    }
+
+    function selectEmail(id) {
+        document.querySelectorAll('.email-item').forEach(el => el.classList.remove('selected'));
+        document.getElementById(`email-${id}`).classList.add('selected');
+        selectedId = id;
+    }
+
+    function classifySelected() {
+        if (selectedId === null) { showToast('⚠️','Select an email','Click an email from the queue first'); return; }
+        const e = emails[selectedId];
+        if (document.getElementById(`email-${selectedId}`).classList.contains('classified')) { showToast('ℹ️','Already classified','This email has been processed'); return; }
+        runClassification(e);
+    }
+
+    async function classifyAll() {
+        for (const e of emails) {
+            if (document.getElementById(`email-${e.id}`).classList.contains('classified')) continue;
+            selectEmail(e.id);
+            await runClassification(e);
+            await sleep(300);
+        }
+    }
+
+    function runClassification(e) {
+        return new Promise(async resolve => {
+            const el = document.getElementById(`email-${e.id}`);
+            el.classList.add('processing');
+            const steps = document.querySelectorAll('.pipeline-step');
+            const stepTimes = [18, 42, 67, 89, 12];
+            const stepLabels = ['Parsing email...','Extracting features...','Scoring with ML model...','Generating LLM reasoning...','Computing hybrid verdict...'];
+
+            for (let i = 0; i < 5; i++) {
+                steps.forEach(s => s.classList.remove('active','done'));
+                steps[i].classList.add('active');
+                steps[i].querySelector('.step-status').textContent = stepLabels[i];
+                await sleep(300 + Math.random()*200);
+                steps[i].classList.remove('active');
+                steps[i].classList.add('done');
+                steps[i].querySelector('.step-status').textContent = 'Complete';
+                steps[i].querySelector('.step-time').textContent = stepTimes[i] + 'ms';
+            }
+
+            el.classList.remove('processing');
+            el.classList.add('classified');
+
+            const ind = document.getElementById(`indicator-${e.id}`);
+            const icons = { phishing:'🚫 PHISHING', bec:'⚠️ BEC', spam:'📢 SPAM', clean:'✅ CLEAN' };
+            ind.className = `threat-indicator ${e.threat}`;
+            ind.textContent = `${icons[e.threat]} ${e.conf}%`;
+            ind.style.display = 'flex';
+
+            // Update reasoning
+            document.getElementById('reasoningText').innerHTML = e.reasoning;
+
+            // Update features
+            const fg = document.getElementById('featuresGrid');
+            const fKeys = ['url','header','sender','urgency','spf','nlp'];
+            const fNames = ['URL Analysis','Header Auth','Sender Rep.','Urgency Score','SPF/DKIM','NLP Sentiment'];
+            fg.innerHTML = fKeys.map((k,i) => {
+                let cls = 'ok';
+                const v = e.features[k];
+                if (['FAIL','Malicious','Credential Harvest','Spoofed','Impersonation','Unknown'].includes(v)) cls = 'danger';
+                else if (['PARTIAL','Tracking','Bulk'].includes(v) || (k==='urgency' && parseFloat(v)>0.5)) cls = 'warn';
+                return `<div class="feature-item"><span class="feature-name">${fNames[i]}</span><span class="feature-value ${cls}">${v}</span></div>`;
+            }).join('');
+
+            // Stats
+            const latency = stepTimes.reduce((a,b)=>a+b,0);
+            processed++;
+            if (e.threat !== 'clean') threats++;
+            latencies.push(latency);
+            confidences.push(e.conf);
+            counts[e.threat]++;
+
+            document.getElementById('totalProcessed').textContent = processed;
+            document.getElementById('totalThreats').textContent = threats;
+            document.getElementById('avgLatency').textContent = Math.round(latencies.reduce((a,b)=>a+b,0)/latencies.length) + 'ms';
+            document.getElementById('avgConf').textContent = (confidences.reduce((a,b)=>a+b,0)/confidences.length).toFixed(1) + '%';
+
+            // Threat bars
+            const total = processed;
+            ['phishing','bec','spam','clean'].forEach(t => {
+                const pct = ((counts[t]/total)*100).toFixed(0);
+                document.getElementById(t.substring(0,t==='phishing'?5:t==='clean'?5:t.length<=3?t.length:4)+'Pct'||t+'Pct');
+            });
+            document.getElementById('phishPct').textContent = ((counts.phishing/total)*100).toFixed(0)+'%';
+            document.getElementById('phishBar').style.width = ((counts.phishing/total)*100)+'%';
+            document.getElementById('becPct').textContent = ((counts.bec/total)*100).toFixed(0)+'%';
+            document.getElementById('becBar').style.width = ((counts.bec/total)*100)+'%';
+            document.getElementById('spamPct').textContent = ((counts.spam/total)*100).toFixed(0)+'%';
+            document.getElementById('spamBar').style.width = ((counts.spam/total)*100)+'%';
+            document.getElementById('cleanPct').textContent = ((counts.clean/total)*100).toFixed(0)+'%';
+            document.getElementById('cleanBar').style.width = ((counts.clean/total)*100)+'%';
+
+            // Log
+            addLog(e);
+            document.getElementById('queueCount').textContent = `${emails.length - processed} pending`;
+
+            const toastIcons = { phishing:'🚫', bec:'⚠️', spam:'📢', clean:'✅' };
+            showToast(toastIcons[e.threat], e.threat.toUpperCase(), `${e.from} — ${e.conf}%`);
+            resolve();
+        });
+    }
+
+    function addLog(e) {
+        const log = document.getElementById('detLog');
+        if (logEntries.length === 0) log.innerHTML = '';
+        const icons = { phishing:'🚫', bec:'⚠️', spam:'📢', clean:'✅' };
+        const colors = { phishing:'var(--danger)', bec:'var(--secondary)', spam:'var(--warning)', clean:'var(--success)' };
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${e.threat}`;
+        entry.innerHTML = `<div class="log-icon">${icons[e.threat]}</div><div class="log-body"><div class="log-title">${e.from}</div><div class="log-detail">${e.subject.substring(0,40)}...</div></div><div class="log-conf" style="color:${colors[e.threat]}">${e.conf}%</div>`;
+        log.insertBefore(entry, log.firstChild);
+        logEntries.push(entry);
+        document.getElementById('logCount').textContent = logEntries.length + ' events';
+    }
+
+    function resetAll() {
+        processed=0; threats=0; latencies=[]; confidences=[]; counts={phishing:0,bec:0,spam:0,clean:0}; logEntries=[]; selectedId=null;
+        init();
+        document.getElementById('detLog').innerHTML = '<div style="color:var(--text-muted);font-size:0.78rem;text-align:center;padding:1.5rem;">Classify emails to see results</div>';
+        document.getElementById('logCount').textContent = '0 events';
+        ['totalProcessed','totalThreats'].forEach(id => document.getElementById(id).textContent = '0');
+        ['avgLatency','avgConf'].forEach(id => document.getElementById(id).textContent = '—');
+        ['phishPct','becPct','spamPct','cleanPct'].forEach(id => document.getElementById(id).textContent = '0%');
+        ['phishBar','becBar','spamBar','cleanBar'].forEach(id => document.getElementById(id).style.width = '0%');
+        document.getElementById('reasoningText').textContent = 'Select and classify an email to see the LLM\'s explainable reasoning chain.';
+        document.querySelectorAll('.pipeline-step').forEach(s => { s.classList.remove('active','done'); s.querySelector('.step-status').textContent='Waiting...'; s.querySelector('.step-time').textContent='—'; });
+        document.getElementById('featuresGrid').innerHTML = ['URL Analysis','Header Auth','Sender Rep.','Urgency Score','SPF/DKIM','NLP Sentiment'].map(n => `<div class="feature-item"><span class="feature-name">${n}</span><span class="feature-value" style="color:var(--text-muted)">—</span></div>`).join('');
+        document.getElementById('queueCount').textContent = '6 pending';
+        showToast('🔄','Reset','All data cleared');
+    }
+
+    function showToast(icon,title,msg) {
+        const t = document.getElementById('toast');
+        document.getElementById('toastIcon').textContent = icon;
+        document.getElementById('toastTitle').textContent = title;
+        document.getElementById('toastMsg').textContent = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    init();
+    </script>
+</body>
+</html>
